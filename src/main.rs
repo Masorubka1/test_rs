@@ -3,8 +3,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::Instant;
 
-fn split_computation<T: Send, R: Send>(
-    mut input: Vec<T>,
+fn split_computation<T: Send + 'static, R: Send + 'static>(
+    input: Vec<T>,
     f: fn(T) -> R,
     _threshold: usize,
 ) -> Vec<R> {
@@ -17,7 +17,7 @@ fn split_computation<T: Send, R: Send>(
     
     let mut tmp = Vec::with_capacity(chunk_size);
     let mut cnt = 0;
-    while input.len() > 0 {
+    for i in input {
         if input_len > _threshold && cnt == chunk_size {
             cnt = 0;
             let local_f = f;
@@ -33,7 +33,7 @@ fn split_computation<T: Send, R: Send>(
             vec_threads.push(th);
             tmp = Vec::with_capacity(chunk_size);
         }
-        tmp.push(input.pop().unwrap());
+        tmp.push(i);
         cnt += 1;
     }
     if tmp.len() > 0 {
@@ -102,7 +102,8 @@ mod test {
     #[test]
     fn test_10() {
         let start = Instant::now();
-        let out = split_computation(INP.to_vec(),  sum,  10);
+        let mut out = split_computation(INP.to_vec(),  sum,  10);
+        out.sort();
         let duration = start.elapsed();
         println!("time: {:?}", duration);
 
