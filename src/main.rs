@@ -3,8 +3,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::Instant;
 
-fn split_computation<T: Send + 'static, R: Send + 'static>(
-    input: Vec<T>,
+fn split_computation<T: Send, R: Send>(
+    mut input: Vec<T>,
     f: fn(T) -> R,
     _threshold: usize,
 ) -> Vec<R> {
@@ -15,23 +15,25 @@ fn split_computation<T: Send + 'static, R: Send + 'static>(
     let (tx, rx) = channel();
     let mut vec_threads = Vec::with_capacity(num_threads);
     
-    let mut tmp = Vec::new();
+    let mut tmp = Vec::with_capacity(chunk_size);
     let mut cnt = 0;
-    for i in input {
+    while input.len() > 0 {
         if input_len > _threshold && cnt == chunk_size {
             cnt = 0;
             let local_f = f;
             let local_tx = tx.clone();
-            let th = thread::spawn( move || {
+            let th = thread::spawn(move || {
                 for i in tmp {
                     let res = local_f(i);
                     local_tx.send(res).unwrap();
                 }
+                //let res = tmp.into_iter().map(local_f).collect::<Vec<R>>();
+                //local_tx.send(res).unwrap();
             });
             vec_threads.push(th);
-            tmp = Vec::new();
+            tmp = Vec::with_capacity(chunk_size);
         }
-        tmp.push(i);
+        tmp.push(input.pop().unwrap());
         cnt += 1;
     }
     if tmp.len() > 0 {
@@ -42,6 +44,8 @@ fn split_computation<T: Send + 'static, R: Send + 'static>(
                 let res = local_f(i);
                 local_tx.send(res).unwrap();
             }
+            //let res = tmp.into_iter().map(local_f).collect::<Vec<R>>();
+            //local_tx.send(res).unwrap();
         });
         vec_threads.push(th);
     }
@@ -50,11 +54,14 @@ fn split_computation<T: Send + 'static, R: Send + 'static>(
 
     let mut results = Vec::with_capacity(input_len);
     for th in vec_threads {
-        th.join().unwrap();
+        let _ = th.join().unwrap();
         for val in rx.iter() {
-            let tmp = val;
-            results.push(tmp);
+            /*for i in val {
+                results.push(i);
+            }*/
+            results.push(val);
         }
+        //results.extend(it);
     }
     results
 }
