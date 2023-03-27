@@ -2,7 +2,7 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Instant;
 
-fn split_computation<T: Send + 'static, R: Send + 'static>(
+fn split_computation<T: Send, R: Send>(
     input: Vec<T>,
     f: fn(T) -> R,
     _threshold: usize,
@@ -12,47 +12,51 @@ fn split_computation<T: Send + 'static, R: Send + 'static>(
     let chunk_size = (input.len() + num_threads - 1) / num_threads;
 
     let (tx, rx) = channel();
-    let mut vec_threads = Vec::with_capacity(num_threads);
 
-    let mut tmp = Vec::with_capacity(chunk_size);
-    let mut cnt = 0;
-    for i in input {
-        if input_len > _threshold && cnt == chunk_size {
+    let result = thread::scope(|s| {
+        let mut vec_threads = Vec::with_capacity(num_threads);
+        
+        let mut tmp = Vec::with_capacity(chunk_size);
+        let mut cnt = 0;
+        for i in input {
+            if input_len > _threshold && cnt == chunk_size {
+                let local_f = f;
+                let local_tx = tx.clone();
+                let th = s.spawn(move || {
+                    for i in tmp {
+                        let res = local_f(i);
+                        local_tx.send(res).unwrap();
+                    }
+                });
+                vec_threads.push(th);
+    
+                tmp = Vec::with_capacity(chunk_size);
+                cnt = 0;
+            }
+            tmp.push(i);
+            cnt += 1;
+        }
+        if tmp.len() > 0 {
             let local_f = f;
             let local_tx = tx.clone();
-            let th = thread::spawn(move || {
+            let th = s.spawn(move || {
                 for i in tmp {
                     let res = local_f(i);
                     local_tx.send(res).unwrap();
                 }
             });
             vec_threads.push(th);
-
-            tmp = Vec::with_capacity(chunk_size);
-            cnt = 0;
         }
-        tmp.push(i);
-        cnt += 1;
-    }
-    if tmp.len() > 0 {
-        let local_f = f;
-        let local_tx = tx.clone();
-        let th = thread::spawn(move || {
-            for i in tmp {
-                let res = local_f(i);
-                local_tx.send(res).unwrap();
-            }
-        });
-        vec_threads.push(th);
-    }
-
-    drop(tx);
-
-    let mut results = Vec::with_capacity(input_len);
-    for val in rx.iter() {
-        results.push(val);
-    }
-    results
+    
+        drop(tx);
+    
+        let mut results = Vec::with_capacity(input_len);
+        for val in rx.iter() {
+            results.push(val);
+        }
+        results
+    });
+    result
 }
 
 mod test {
